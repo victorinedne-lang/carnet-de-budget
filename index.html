@@ -126,6 +126,8 @@ textarea{width:100%;padding:10px 12px;border:2.5px solid var(--ink);border-radiu
 @media (prefers-reduced-motion:reduce){.pig,.ring.pop{animation:none}}
 </style></head>
 <body><main id="app"></main><nav id="nav"></nav>
+<script src="supabase.min.js"></script>
+<script src="config.js"></script>
 <script>
 const KEY='budget-planner-v1';
 const SAVE=[{n:'Kawaii rose',a:'#ff9ec0',s:'#ffe1ec',bow:'#e63946',mood:'k'},{n:'Vanille',a:'#ffe08a',s:'#fff6d6',bow:'#ff8fa3',mood:'k'},{n:'Menthe',a:'#9be3d0',s:'#dcf6ee',bow:'#ff8fa3',mood:'k'},{n:'Rêverie bleue',a:'#a9c1e6',s:'#e2ebf8',mood:'r',tear:'#6fa8dc'},{n:'Brume lilas',a:'#c9b6e8',s:'#efe8fa',mood:'r',tear:'#8e7cc3'},{n:'Sauge',a:'#b7cdb0',s:'#e8f1e4',mood:'r',tear:'#7aa58a'}];
@@ -147,7 +149,7 @@ function seed(){return{sound:true,income:1800,cats:[
 goals:[{id:'g1',kind:'save',name:'Voyage de rêve',emoji:'✈️',theme:0,current:600,target:2000,unit:'€',deadline:'',log:[]},
 {id:'g2',kind:'pro',name:'Obtenir 10 clients',emoji:'🤝',theme:0,current:3,target:10,unit:'clients',deadline:'',log:[]}]}}
 function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r);if(d.sound===undefined)d.sound=true;return d}}catch(e){}return seed()}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function save(){S.updated=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}push()}
 let S=load(),view={tab:'budget',goal:null,from:null};
 const commit=()=>{save();render()};
 const val=(m,n)=>m.querySelector('[name='+n+']').value;
@@ -155,6 +157,33 @@ const pick=(m,k)=>{const x=m.querySelector('[data-pick="'+k+'"].on');return x?x.
 const autoDue=c=>{const d=new Date(),last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();return d.getDate()>=Math.min(c.day||1,last)};
 const spentOf=c=>(c.spent||0)+(c.auto&&autoDue(c)?c.budget:0);
 
+/* synchro multi-appareils (Supabase) */
+const CFG=window.CARNET_CONFIG||{};let CL=null,USER=null,chan=null,pushT=null,syncMsg='';
+const syncOn=()=>!!(CFG.url&&CFG.key&&window.supabase);
+const setMsg=t=>{syncMsg=t;const e=$('#syncmsg');if(e)e.textContent=t};
+function initSync(){if(!syncOn())return;CL=window.supabase.createClient(CFG.url,CFG.key);
+ CL.auth.onAuthStateChange((ev,s)=>{const u=s?s.user:null;
+  if(u&&(!USER||USER.id!==u.id)){USER=u;setTimeout(()=>startSync(),0)}
+  else if(!u&&USER){USER=null;if(chan){CL.removeChannel(chan);chan=null}render()}});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&USER)startSync(true)});
+ addEventListener('online',()=>{if(USER)push()})}
+function applyRemote(d){const t=()=>{if(document.querySelector('.ov,.wr'))return setTimeout(t,2000);if((d.updated||0)>(S.updated||0)){S=d;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}render()}};t()}
+async function pushNow(){if(!CL||!USER)return;S.updated=S.updated||Date.now();
+ const{error}=await CL.from('planner').upsert({user_id:USER.id,data:S,updated_at:new Date().toISOString()});
+ setMsg(error?'Erreur de synchro : '+error.message:'Synchronisé ✓')}
+function push(){if(!CL||!USER)return;clearTimeout(pushT);pushT=setTimeout(pushNow,900)}
+async function startSync(silent){if(!CL||!USER)return;setMsg('Synchronisation…');
+ const{data,error}=await CL.from('planner').select('data').eq('user_id',USER.id).maybeSingle();
+ if(error){setMsg('Erreur de synchro : '+error.message);return}
+ const rd=data&&data.data;
+ if(rd&&(rd.updated||0)>(S.updated||0)){applyRemote(rd);setMsg('Synchronisé ✓')}else await pushNow();
+ if(chan)CL.removeChannel(chan);
+ chan=CL.channel('planner-'+USER.id).on('postgres_changes',{event:'*',schema:'public',table:'planner',filter:'user_id=eq.'+USER.id},p=>{const r=p.new&&p.new.data;if(r&&(r.updated||0)>(S.updated||0)){applyRemote(r);toast('☁️ Mis à jour depuis un autre appareil')}}).subscribe();
+ if(!silent)render()}
+function syncCard(){const h='<div class="stk"><div class="t">☁️ Synchronisation</div>';
+ if(!syncOn())return h+'<div class="note">Pas encore activée : renseigne le fichier config.js (voir LISEZMOI.txt).</div></div>';
+ return USER?h+`<div class="sm">Connectée : ${esc(USER.email)}</div><div class="note" id="syncmsg">${esc(syncMsg)}</div><div class="acts"><button class="btn" data-act="syncnow">Synchroniser maintenant</button><button class="btn ghost" data-act="logout">Se déconnecter</button></div></div>`
+ :h+'<div class="note">Connecte-toi pour retrouver ton budget sur tous tes appareils.</div><div class="acts"><button class="btn" data-act="login">Se connecter</button><button class="btn ghost" data-act="signup">Créer un compte</button></div></div>'}
 /* sons */
 let AC;
 function tone(f,t0,d,type,vol,f2){if(!S.sound)return;try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();
@@ -211,7 +240,7 @@ function starsOf(k,d){const r=[];S.goals.forEach(g=>{if(goalStar(g,k))r.push({c:
 function months(){const s=new Set([mk()]);Object.keys(S.hist||{}).forEach(k=>s.add(k));S.goals.forEach(g=>{(g.log||[]).forEach(l=>s.add(l.d.slice(0,7)));if(g.reachedIn)s.add(g.reachedIn)});return [...s].sort().reverse()}
 function snap(k,full){const sp=c=>full?(c.spent||0)+(c.auto?c.budget:0):spentOf(c),tot=S.cats.reduce((a,c)=>a+sp(c),0);
  return{income:S.income,spent:tot,cats:S.cats.map(c=>({n:c.name,e:c.emoji,b:c.budget,s:sp(c)})),zen:tot>0&&S.cats.every(c=>sp(c)<=c.budget)&&tot<=S.income,saved:S.goals.filter(g=>g.kind==='save').reduce((a,g)=>a+mProg(g,k),0),pro:S.goals.filter(g=>g.kind==='pro').map(g=>({n:g.name,e:g.emoji,v:mProg(g,k),u:g.unit})).filter(x=>x.v>0)}}
-function rollover(){const cur=mk();if(!S.month){S.month=cur;save();return null}if(S.month===cur)return null;const k=S.month;S.hist=S.hist||{};S.hist[k]=snap(k,true);S.cats.forEach(c=>c.spent=0);S.month=cur;save();return k}
+function rollover(){const cur=mk();if(!S.month){S.month=cur;return null}if(S.month===cur)return null;const k=S.month;S.hist=S.hist||{};S.hist[k]=snap(k,true);S.cats.forEach(c=>c.spent=0);S.month=cur;save();return k}
 function vStars(){const cur=mk();let tot=0;
  const cards=months().map(k=>{const st=starsOf(k);tot+=st.length;const miss=S.goals.filter(g=>g.monthly>0&&!goalStar(g,k)),z=k===cur&&!(S.hist&&S.hist[k]);
   const sl=st.map(s=>`<div class="sst">${star(s.c,s.e,64,1)}<div>${esc(s.n)}</div></div>`).join('')+miss.map(g=>`<div class="sst">${star(th(g).a,g.emoji,64,0)}<div>${k===cur?fmtG(g,mProg(g,k))+' / '+fmtG(g,g.monthly):esc(g.name)}</div></div>`).join('')+(z?`<div class="sst">${star('#b6e388','🍃',64,0)}<div>Budget zen</div></div>`:'');
@@ -242,7 +271,7 @@ function profForm(p){return `<label>Prénom<input name="name" value="${esc(p.nam
 function vProfile(){const p=prof(),sv=S.goals.filter(g=>g.kind==='save'),pr=S.goals.filter(g=>g.kind==='pro');
  return `${head('Mon profil','tout sur moi')}
 <div class="stk prof"><div class="pavw">${avatar(110)}</div><div class="name">${esc(p.name)||'Ton prénom'}</div>${p.handle?`<div class="sm">@${esc(p.handle)}</div>`:''}${p.bio?`<div class="note">${esc(p.bio)}</div>`:''}<div class="acts" style="justify-content:center"><button class="btn" data-act="editprof">Modifier mon profil</button></div></div>
-<div class="stk"><div class="stats"><div><b>${eur(S.income)}</b><span>revenu</span></div><div><b>${eur(sv.reduce((a,g)=>a+g.current,0))}</b><span>de côté</span></div><div><b>${pr.filter(g=>g.current>=g.target).length}/${pr.length}</b><span>objectifs pro</span></div></div></div><button class="btn ghost full" data-act="backup">💾 Sauvegarder / transférer mes données</button>`}
+<div class="stk"><div class="stats"><div><b>${eur(S.income)}</b><span>revenu</span></div><div><b>${eur(sv.reduce((a,g)=>a+g.current,0))}</b><span>de côté</span></div><div><b>${pr.filter(g=>g.current>=g.target).length}/${pr.length}</b><span>objectifs pro</span></div></div></div>${syncCard()}<button class="btn ghost full" data-act="backup">💾 Sauvegarder / transférer mes données</button>`}
 function vSpend(){const tot=S.cats.reduce((a,c)=>a+spentOf(c),0);if(!tot)return '';
  const L=S.cats.map((c,i)=>({c,i,v:spentOf(c)})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
  return `<div class="stk"><div class="row"><div class="t">Où part mon argent ?</div><div class="pc">${eur(tot)}</div></div><div class="note">${esc(L[0].c.name)} est ton plus gros poste : ${pct(L[0].v,tot)} % de tes dépenses</div>
@@ -296,8 +325,8 @@ function render(){const g=view.goal&&S.goals.find(x=>x.id===view.goal);
  $('#nav').innerHTML=[['budget','📒','Budget'],['save','🐷','Tirelires'],['pro','💼','Pro'],['stars','⭐','Étoiles'],['me','🧸','Profil']].map(([t,i,l])=>`<button class="${view.tab===t?'on':''}" data-act="tab" data-t="${t}"><b>${i}</b>${l}</button>`).join('')}
 
 /* formulaires */
-function modal(title,body,onSave,onDel){const m=document.createElement('div');m.className='ov';
- m.innerHTML=`<div class="sheet"><h2>${title}</h2>${body}<div class="acts"><button class="btn" data-m="ok">Enregistrer</button>${onDel?'<button class="btn danger" data-m="del">Supprimer</button>':''}<button class="btn ghost" data-m="x">Annuler</button></div></div>`;
+function modal(title,body,onSave,onDel,ok){const m=document.createElement('div');m.className='ov';
+ m.innerHTML=`<div class="sheet"><h2>${title}</h2>${body}<div class="acts"><button class="btn" data-m="ok">${ok||'Enregistrer'}</button>${onDel?'<button class="btn danger" data-m="del">Supprimer</button>':''}<button class="btn ghost" data-m="x">Annuler</button></div></div>`;
  m.addEventListener('click',e=>{const t=e.target;if(t===m||t.dataset.m==='x'){m.remove();return}
   const pk=t.closest('[data-pick]');if(pk){if(pk.dataset.multi)pk.classList.toggle('on');else{pk.parentNode.querySelectorAll('[data-pick]').forEach(x=>x.classList.remove('on'));pk.classList.add('on')}return}
   if(t.dataset.m==='ok'){onSave(m);m.remove()}
@@ -328,6 +357,9 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(
  else if(a==='presets'){const ex=S.cats.map(x=>x.name.toLowerCase()),L=PRESETS.filter(p=>!ex.includes(p.name.toLowerCase()));
   modal('Catégories suggérées',L.length?`<div class="note">Coche celles que tu veux suivre, tu ajusteras les budgets ensuite.</div><div class="pk">${L.map((p,i)=>`<button type="button" class="chip" data-pick="pre" data-multi="1" data-v="${i}">${p.emoji} ${p.name}</button>`).join('')}</div>`:'<div class="note">Tu as déjà toutes les catégories suggérées !</div>',m=>{m.querySelectorAll('[data-pick="pre"].on').forEach(x=>{const p=L[+x.dataset.v];S.cats.push({id:uid(),name:p.name,emoji:p.emoji,budget:p.budget,spent:0})});commit()})}
  else if(a==='editprof'){const p=prof();modal('Mon profil',profForm(p),m=>{p.name=val(m,'name').trim();p.handle=val(m,'handle').trim().replace(/^@/,'');p.bio=val(m,'bio').trim();const rm=m.querySelector('[name=rmphoto]');if(rm&&rm.checked)p.photo='';const f=m.querySelector('[name=photo]').files[0];if(f)shrink(f,d=>{if(d)p.photo=d;commit()});else commit()})}
+ else if(a==='login'||a==='signup'){const su=a==='signup';modal(su?'Créer un compte':'Connexion',`<label>E-mail<input name="em" type="email" autocomplete="email"></label><label>Mot de passe (6 caractères minimum)<input name="pw" type="password" autocomplete="${su?'new-password':'current-password'}"></label>`,m=>{const em=val(m,'em').trim(),pw=val(m,'pw');const r=su?CL.auth.signUp({email:em,password:pw}):CL.auth.signInWithPassword({email:em,password:pw});r.then(({data,error})=>{if(error)toast(error.message);else if(su&&data&&!data.session)toast('Compte créé : confirme ton e-mail puis connecte-toi')})},null,su?'Créer mon compte':'Se connecter')}
+ else if(a==='logout'){CL.auth.signOut()}
+ else if(a==='syncnow'){startSync(true)}
  else if(a==='wrap'){const k=mk();showWrapped(k,snap(k,false))}
  else if(a==='backup')modal('Sauvegarde',`<div class="note">Copie ce texte pour transférer tes données sur un autre appareil, ou colle une sauvegarde ici pour la restaurer.</div><textarea name="d" rows="7">${esc(JSON.stringify(S))}</textarea>`,m=>{try{const d=JSON.parse(val(m,'d'));if(d&&Array.isArray(d.cats)&&Array.isArray(d.goals)){S=d;commit();toast('Données restaurées ✨')}else toast('Sauvegarde invalide')}catch(e){toast('Sauvegarde invalide')}})
  else if(a==='income')modal('Revenu du mois',`<label>Montant (€)<input name="v" inputmode="decimal" value="${S.income}"></label>`,m=>{S.income=num(val(m,'v'));commit()});
@@ -342,7 +374,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(
  else if(a==='addc'&&g)adjust(g,Math.abs(num($('#amt').value)));
  else if(a==='subc'&&g)adjust(g,-Math.abs(num($('#amt').value)));
 });
-const rk=rollover();render();
+const rk=rollover();render();initSync();
 {let wk=null,wd=null;if(rk&&S.wrapSeen!==rk){wk=rk;wd=S.hist[rk]}else if(isLast()&&S.wrapSeen!==mk()){wk=mk();wd=snap(mk(),false)}
 if(wk){S.wrapSeen=wk;save();setTimeout(()=>showWrapped(wk,wd),600)}}
 </script><script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>

@@ -1,10 +1,9 @@
-MON CARNET DE BUDGET - application a epingler
+MON CARNET DE BUDGET - application synchronisee
 
-1) Mets ce dossier en ligne (gratuit) : Netlify (glisser-deposer du dossier), GitHub Pages ou Cloudflare Pages.
-   L'adresse doit etre en https.
-2) Ouvre l'adresse obtenue puis installe :
-   - iPhone (Safari) : Partager > Sur l'ecran d'accueil
-   - Android (Chrome) : menu ... > Installer l'application
-   - PC (Chrome / Edge) : icone Installer dans la barre d'adresse
-   - Mac (Safari) : Fichier > Ajouter au Dock
-3) Tes donnees restent sur l'appareil. Pour les transferer : Profil > Sauvegarder / transferer mes donnees.
+1) Cree un projet gratuit sur supabase.com, puis colle supabase-setup.sql dans SQL Editor > Run.
+2) Authentication > Sign In / Providers > Email : desactive "Confirm email".
+3) Project Settings > API Keys : copie l'URL du projet et la cle PUBLIQUE (anon / publishable).
+4) Ouvre config.js, colle les deux valeurs entre les guillemets, enregistre.
+5) Mets tous les fichiers de ce dossier sur GitHub Pages (Add file > Upload files).
+6) Dans l'app : Profil > Creer un compte (1er appareil), puis Se connecter sur les autres.
+Ne mets JAMAIS la cle secrete / service_role dans config.js.
