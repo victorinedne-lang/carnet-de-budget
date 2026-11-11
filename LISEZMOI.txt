@@ -1,0 +1,10 @@
+MON CARNET DE BUDGET - application a epingler
+
+1) Mets ce dossier en ligne (gratuit) : Netlify (glisser-deposer du dossier), GitHub Pages ou Cloudflare Pages.
+   L'adresse doit etre en https.
+2) Ouvre l'adresse obtenue puis installe :
+   - iPhone (Safari) : Partager > Sur l'ecran d'accueil
+   - Android (Chrome) : menu ... > Installer l'application
+   - PC (Chrome / Edge) : icone Installer dans la barre d'adresse
+   - Mac (Safari) : Fichier > Ajouter au Dock
+3) Tes donnees restent sur l'appareil. Pour les transferer : Profil > Sauvegarder / transferer mes donnees.
